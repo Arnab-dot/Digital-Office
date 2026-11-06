@@ -1,0 +1,28 @@
+server: {port: 8083}
+spring:
+  application: {name: client-service}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/client_db}
+    username: ${SPRING_DATASOURCE_USERNAME:digitaloffice}
+    password: ${SPRING_DATASOURCE_PASSWORD:change-me-locally}
+  jpa.hibernate.ddl-auto: validate
+  flyway.enabled: true
+  security.oauth2.resourceserver.jwt.issuer-uri: ${KEYCLOAK_ISSUER:http://localhost:8080/realms/digital-office}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+internal:
+  organization-service:
+    url: ${ORGANIZATION_SERVICE_URL:http://localhost:8082}

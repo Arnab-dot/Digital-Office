@@ -1,0 +1,162 @@
+server:
+  port: 8088
+spring:
+  application:
+    name: api-gateway
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8180/realms/digital-office/protocol/openid-connect/certs}
+  cloud:
+    gateway:
+      httpclient:
+        response-timeout: 5s
+      routes:
+        - id: clients-by-organization
+          uri: ${CLIENT_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/organizations/*/clients/**
+        - id: finance-subscriptions-by-organization
+          uri: ${FINANCE_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/organizations/*/subscription/**,/api/v1/organizations/*/subscription
+        - id: finance-usage-by-organization
+          uri: ${FINANCE_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/organizations/*/usage/**,/api/v1/organizations/*/usage
+        - id: finance-invoices-by-organization
+          uri: ${FINANCE_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/organizations/*/invoices/**,/api/v1/organizations/*/invoices
+        - id: finance-payments-by-organization
+          uri: ${FINANCE_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/organizations/*/payments/**,/api/v1/organizations/*/payments
+        - id: finance-plans
+          uri: ${FINANCE_SERVICE_URL:http://localhost:8091}
+          predicates:
+            - Path=/api/v1/finance/**
+        - id: organization-activity
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/organizations/*/activity/**,/api/v1/organizations/*/activity
+        - id: organization-audit-logs
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/organizations/*/audit-logs/**,/api/v1/organizations/*/audit-logs
+        - id: notifications-websocket
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/ws/notifications/**
+        - id: identity-service
+          uri: ${IDENTITY_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/users/**
+        - id: organization-service
+          uri: ${ORGANIZATION_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/organizations/**,/api/v1/invitations/**
+        - id: client-service
+          uri: ${CLIENT_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/clients/**
+        - id: work-service
+          uri: ${WORK_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/tasks/**,/api/v1/projects/*/tasks
+        - id: document-service
+          uri: ${DOCUMENT_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/v1/documents/**,/api/v1/projects/*/documents
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8087}
+          predicates:
+            - Path=/api/v1/notifications/**
+        - id: dashboard-service
+          uri: ${DASHBOARD_SERVICE_URL:http://localhost:8089}
+          predicates:
+            - Path=/api/v1/dashboard
+        - id: work-comments
+          uri: ${WORK_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/tasks/*/comments/**
+        - id: work-activity
+          uri: ${WORK_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/tasks/*/activity,/api/v1/projects/*/activity
+        - id: work-workstreams
+          uri: ${WORK_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/projects/*/workstreams/**,/api/v1/workstreams/**
+        - id: work-milestones
+          uri: ${WORK_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/projects/*/milestones/**,/api/v1/milestones/**
+        - id: project-service
+          uri: ${PROJECT_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/projects/**
+        - id: document-review
+          uri: ${DOCUMENT_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/v1/documents/*/versions/*/submit-for-review,/api/v1/documents/*/versions/*/reviewers/**,/api/v1/documents/*/versions/*/reviews/**
+        - id: search-projects
+          uri: ${PROJECT_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/v1/search/projects
+        - id: search-tasks
+          uri: ${WORK_SERVICE_URL:http://localhost:8085}
+          predicates:
+            - Path=/api/v1/search/tasks
+        - id: search-documents
+          uri: ${DOCUMENT_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/v1/search/documents
+        - id: communication-service
+          uri: ${COMMUNICATION_SERVICE_URL:http://localhost:8090}
+          predicates:
+            - Path=/api/v1/meetings/**,/api/v1/meetings
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "http://localhost:*"
+              - "http://127.0.0.1:*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+            maxAge: 3600
+      default-filters:
+        - name: Retry
+          args:
+            retries: 2
+            methods: GET
+            statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE,GATEWAY_TIMEOUT
+            backoff:
+              firstBackoff: 100ms
+              maxBackoff: 1000ms
+              factor: 2
+              basedOnPreviousValue: false
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+

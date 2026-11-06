@@ -1,0 +1,33 @@
+server:
+  port: 8089
+spring:
+  application:
+    name: dashboard-service
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${KEYCLOAK_ISSUER:http://localhost:8080/realms/digital-office}
+internal:
+  work-service:
+    url: ${WORK_SERVICE_URL:http://localhost:8085}
+  document-service:
+    url: ${DOCUMENT_SERVICE_URL:http://localhost:8086}
+  project-service:
+    url: ${PROJECT_SERVICE_URL:http://localhost:8084}
+  notification-service:
+    url: ${NOTIFICATION_SERVICE_URL:http://localhost:8087}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  prometheus:
+    metrics:
+      export:
+        enabled: true

@@ -1,0 +1,274 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-digitaloffice}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      POSTGRES_DB: identity_db
+    ports: ["5434:5432"]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init.sql:/docker-entrypoint-initdb.d/01-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me-locally}
+    ports: ["8180:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    ports: ["9092:9092"]
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-locally}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [minio_data:/data]
+
+  service-discovery:
+    build: services/service-discovery
+    ports: ["8761:8761"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  identity-service:
+    build: services/identity-service
+    ports: ["8081:8081"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/identity_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8081/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  organization-service:
+    build: services/organization-service
+    ports: ["8082:8082"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/organization_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8082/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  client-service:
+    build: services/client-service
+    ports: ["8083:8083"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/client_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      ORGANIZATION_SERVICE_URL: http://organization-service:8082
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8083/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  project-service:
+    build: services/project-service
+    ports: ["8084:8084"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/project_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      ORGANIZATION_SERVICE_URL: http://organization-service:8082
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8084/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  work-service:
+    build: services/work-service
+    ports: ["8085:8085"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/work_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      ORGANIZATION_SERVICE_URL: http://organization-service:8082
+      PROJECT_SERVICE_URL: http://project-service:8084
+      DOCUMENT_SERVICE_URL: http://document-service:8086
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8085/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  document-service:
+    build: services/document-service
+    ports: ["8086:8086"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/document_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      INTERNAL_ORGANIZATION_SERVICE_URL: http://organization-service:8082
+      INTERNAL_PROJECT_SERVICE_URL: http://project-service:8084
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8086/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  notification-service:
+    build: services/notification-service
+    ports: ["8087:8087"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/notification_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      INTERNAL_ORGANIZATION_SERVICE_URL: http://organization-service:8082
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8087/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  dashboard-service:
+    build: services/dashboard-service
+    ports: ["8089:8089"]
+    environment:
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      INTERNAL_WORK_SERVICE_URL: http://work-service:8085
+      INTERNAL_DOCUMENT_SERVICE_URL: http://document-service:8086
+      INTERNAL_PROJECT_SERVICE_URL: http://project-service:8084
+      INTERNAL_NOTIFICATION_SERVICE_URL: http://notification-service:8087
+    depends_on: [keycloak]
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8089/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  communication-service:
+    build: services/communication-service
+    ports: ["8090:8090"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/communication_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      JITSI_SERVER_URL: ${JITSI_SERVER_URL:-https://meet.jit.si}
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8090/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  finance-service:
+    build: services/finance-service
+    ports: ["8091:8091"]
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/finance_db
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-digitaloffice}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-change-me-locally}
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      INTERNAL_ORGANIZATION_SERVICE_URL: http://organization-service:8082
+    depends_on: {postgres: {condition: service_healthy}, keycloak: {condition: service_started}}
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8091/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  api-gateway:
+    build: services/api-gateway
+    ports: ["8088:8088"]
+    environment:
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://keycloak:8080/realms/digital-office}
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/digital-office/protocol/openid-connect/certs
+      IDENTITY_SERVICE_URL: http://identity-service:8081
+      ORGANIZATION_SERVICE_URL: http://organization-service:8082
+      CLIENT_SERVICE_URL: http://client-service:8083
+      PROJECT_SERVICE_URL: http://project-service:8084
+      WORK_SERVICE_URL: http://work-service:8085
+      DOCUMENT_SERVICE_URL: http://document-service:8086
+      NOTIFICATION_SERVICE_URL: http://notification-service:8087
+      DASHBOARD_SERVICE_URL: http://dashboard-service:8089
+      COMMUNICATION_SERVICE_URL: http://communication-service:8090
+      FINANCE_SERVICE_URL: http://finance-service:8091
+    depends_on:
+      - service-discovery
+      - identity-service
+      - organization-service
+      - client-service
+      - project-service
+      - work-service
+      - document-service
+      - notification-service
+      - dashboard-service
+      - communication-service
+      - finance-service
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8088/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build: frontend
+    ports: ["5173:80"]
+    depends_on:
+      - api-gateway
+
+volumes:
+  postgres_data:
+  minio_data:
